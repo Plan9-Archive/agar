@@ -1,0 +1,10 @@
+</$objtype/mkfile
+
+LIB=libquad.$O.a
+OFILES=quad.$O
+HFILES=quad.h
+
+</sys/src/cmd/mklib
+
+$O.quadtest: quadtest.$O $LIB
+	$LD $LDFLAGS -o $target $prereq
