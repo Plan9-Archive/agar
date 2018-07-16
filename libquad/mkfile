@@ -1,10 +1,17 @@
 </$objtype/mkfile
 
-LIB=libquad.$O.a
-OFILES=quad.$O
-HFILES=quad.h
+P=quad
+
+LIB=lib$P.$O.a
+OFILES=$P.$O
+HFILES=$P.h
 
 </sys/src/cmd/mklib
 
-$O.quadtest: quadtest.$O $LIB
+CLEANFILES=$O.quadtest
+
+$O.quadtest: quadtest.$O $LIB ../libagar/libagar.$O.a
 	$LD $LDFLAGS -o $target $prereq
+
+quadtest.$O: quadtest.c
+	$CC $CFLAGS -I../libagar quadtest.c

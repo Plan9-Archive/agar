@@ -1,0 +1,11 @@
+</$objtype/mkfile
+
+P=agar
+
+LIB=lib$P.$O.a
+OFILES=$P.$O
+HFILES=$P.h
+
+CFLAGS=$CFLAGS -I../libquad
+
+</sys/src/cmd/mklib

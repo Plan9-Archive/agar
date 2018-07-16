@@ -5,38 +5,40 @@
 #include "quad.h"
 
 Quad
-qcircle(Point p, int radius)
+qcircle(Point p, int radius, void *aux)
 {
 	Quad q;
 	q.type = QNCIRCLE;
 	q.p = p;
 	q.radius = radius;
+	q.aux = aux;
 	return q;
 }
 
 Quad
-qrect(Rectangle r)
+qrect(Rectangle r, void *aux)
 {
 	Quad q;
 	q.type = QNRECTANGLE;
 	q.r = r;
+	q.aux = aux;
 	return q;
 }
 
 Rectangle
-quad2rect(Quad *v)
+quad2rect(Quad v)
 {
 	Rectangle r;
 	Point p;
 
-	switch(v->type){
+	switch(v.type){
 	case QNCIRCLE:
-		p = Pt(v->radius, v->radius);
-		r.min = subpt(v->p, p);
-		r.max = addpt(v->p, p);
+		p = Pt(v.radius, v.radius);
+		r.min = subpt(v.p, p);
+		r.max = addpt(v.p, p);
 		break;
 	case QNRECTANGLE:
-		r = v->r;
+		r = v.r;
 		break;
 	}
 
@@ -57,38 +59,32 @@ qtmk(Rectangle aabb)
 	return qt;
 }
 
-static Quad*
+static Quad
 qtremove(QuadTree *qt, int i)
 {
-	Quad *q;
+	Quad q;
 
 	q = qt->quads[i];
 
-	memmove(&qt->quads[i], &qt->quads[i+1], (qt->nquads-i-1)*sizeof(Quad*));
+	memmove(&qt->quads[i], &qt->quads[i+1], (qt->nquads-i-1)*sizeof(q));
 	qt->nquads--;
 
 	return q;
 }
 
-static Quad*
+static Quad
 qtget(QuadTree *qt, int i)
 {
-	Quad *q;
-
-	assert(qt->quads);
-	q = qt->quads[i];
-	assert(q);
-
-	return q;
+	return qt->quads[i];
 }
 
 static int
-qtadd(QuadTree *qt, Quad *q)
+qtadd(QuadTree *qt, Quad q)
 {
 	int n;
 
 	if(qt->quads == nil || qt->nquads == qt->maxquads){
-		qt->quads = realloc(qt->quads, (qt->maxquads+10) * sizeof(Quad*));
+		qt->quads = realloc(qt->quads, (qt->maxquads+10) * sizeof(q));
 		if(qt->quads == nil)
 			sysfatal("realloc: %r");
 		qt->maxquads += 10;
@@ -101,6 +97,7 @@ qtadd(QuadTree *qt, Quad *q)
 	return n;
 }
 
+/* return quadrant of qt in which r fits, if it does not fit return -1 */
 static int
 qtgetsub(QuadTree *qt, Rectangle r)
 {
@@ -134,20 +131,16 @@ qtgetsub(QuadTree *qt, Rectangle r)
 }
 
 int
-qtinsert(QuadTree *qt, Quad *v)
+qtinsert(QuadTree *qt, Quad v)
 {
 	int sub, i;
-	Quad *q;
-
-	//print("qtinsert %#p %P in %R\n", qt, xy, qt->boundary);
+	Quad q;
 
 	if(qt->zones != nil){
 		sub = qtgetsub(qt, quad2rect(v));
 		if(sub != -1){
 			if(qtinsert(&qt->zones[sub], v) != 1)
 				goto failure;
-			return 1;
-		} else {
 			return 1;
 		}
 	}
@@ -203,7 +196,7 @@ qtclear(QuadTree *qt)
 {
 	int i;
 
-	memset(qt->quads, 0, qt->maxquads * sizeof(Quad*));
+	memset(qt->quads, 0, qt->maxquads * sizeof(Quad));
 	free(qt->quads);
 	qt->quads = nil;
 	qt->nquads = 0;
@@ -221,10 +214,10 @@ qtclear(QuadTree *qt)
 }
 
 int
-qtsearch(QuadTree *qt, Rectangle r, Quad ***res, int *nres)
+qtsearch(QuadTree *qt, Rectangle r, Quad **res, int *nres)
 {
 	int i, n;
-	Quad **v;
+	Quad *v;
 
 	//print("check %R X %R\n", qt->boundary, r);
 
@@ -234,7 +227,7 @@ qtsearch(QuadTree *qt, Rectangle r, Quad ***res, int *nres)
 	if(qt->nquads > 0){
 		n = qt->nquads;
 
-		*res = realloc(*res, (*nres + n) * sizeof(Quad*));
+		*res = realloc(*res, (*nres + n) * sizeof(Quad));
 		if(*res == nil)
 			sysfatal("realloc: %r");
 

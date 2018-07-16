@@ -4,6 +4,8 @@
 #include <fcall.h>
 #include <thread.h>
 #include <9p.h>
+#include <geometry.h>
+#include <avl.h>
 
 #include <quad.h>
 #include "agar.h"
@@ -16,24 +18,24 @@ extern int debug;
  */
 
 Player*
-pmake(char *name, Point pos, int mass)
+pmake(char *name, Point3 pos, int mass)
 {
 	Player *p;
 	Cell *c;
 
 	c = emalloc9p(sizeof(*c));
 
-	c->p = pos;
-	c->radius = mass2radius(mass);
+	c->pos = pos;
+	// TODO QUAD c->radius = mass2radius(mass);
 	c->mass = mass;
-	c->speed = 8.0;
+	c->speed = 100.0;
 
 	c->color = DRed;
 
 	p = emalloc9p(sizeof(*p));
 
 	p->name = estrdup9p(name);
-	p->p = pos;
+	p->pos = pos;
 	p->target = pos;
 
 	p->color = DRed;
@@ -46,42 +48,64 @@ pmake(char *name, Point pos, int mass)
 }
 
 void
-pmove(Player *pl)
+pmove(Player *pl, double dt)
 {
-	int i, dx, dy;
-	double tx, ty, dist, deg;
-	Point target,  p;
+	int i;
+	double dx, dy, tx, ty, dist, deg;
+	Point3 target, p, unit;
 	Cell *c;
 
 	for(i = 0; i < pl->ncells; i++){
 		c = &pl->cells[i];
 		target = pl->target;
 
-		ptdist(c->p, pl->target, &dist, &deg);
+		ptdist(c->pos, pl->target, &dist, &deg);
 
 		/* small distance from target - don't move */
-		if(dist <= 5.0)
+		//if(closept3(c->pos, pl->target, 5.0))
+			//continue;
+		if(dist <= 10.0)
 			continue;
 
+		DBG print("player %8s cell %02d pos %5.2f,%5.2f target %5.2f,%5.2f dist %5.2f deg %5.2f\n",
+			pl->name, i, c->pos.x, c->pos.y, target.x, target.y, dist, deg);
+
+/*
 		ty = target.y - c->p.y;	
 		tx = target.x - c->p.x;
+		dy = (ty / dist) * c->speed;
+		dx = (tx / dist) * c->speed;
 
-		DBG print("player %8s cell %02d pos %03d,%03d target %03d,%03d dist %5.2f deg %5.2f\n",
-			pl->name, i, c->p.x, c->p.y, target.x, target.y, dist, deg);
+		p = (Point3){dx, dy, 0, 0};
+		p = add3(c->pos, p);
+*/
+		//p = lerp3(c->pos, pl->target, 1 - pow(0.25, dt));
+		p = sub3(pl->target, c->pos);
+		unit = unit3(p);
+		p = add3(c->pos, mul3(unit, c->speed * dt));
 
-		dy = (int)((ty / dist) * c->speed);
-		dx = (int)((tx / dist) * c->speed);
-
-		p = addpt(c->p, Pt(dx, dy));
-
-		DBG print("dx %03d dy %03d newpos %03d,%03d\n", dx, dy, p.x, p.y);
+		DBG print("dx %5.2f dy %5.2f newpos %5.2f,%5.2f\n", dx, dy, p.x, p.y);
 
 		// TODO(mischief): pack cells
 
-		c->p = p;
+		c->pos = p;
+		// TODO QUAD c->p = Pt(p.x, p.y);
 	}
 
-	pl->p = pl->cells[0].p;
+	pl->pos = pl->cells[0].pos;
+}
+
+int
+cellcmp(Avl *a, Avl *b)
+{
+	Cell *ca, *cb;
+
+	ca = (Cell*)a;
+	cb = (Cell*)b;
+	if(ca->id == cb->id)
+		return 0;
+
+	return ca->id < cb->id ? -1 : 1;
 }
 
 /*
@@ -105,7 +129,7 @@ getid(void)
 int
 mass2radius(int mass)
 {
-	return 4 + (int)(sqrt((double)mass) * 8.0);
+	return 2 + (int)(sqrt((double)mass) * 3.0);
 }
 
 /*
@@ -114,7 +138,7 @@ mass2radius(int mass)
  * needs a better name.
  */
 void
-ptdist(Point a, Point b, double *dist, double *rad)
+ptdist(Point3 a, Point3 b, double *dist, double *rad)
 {
 	double dx, dy;
 
@@ -126,6 +150,28 @@ ptdist(Point a, Point b, double *dist, double *rad)
 
 	if(rad)
 		*rad = atan2(dy, dx);
+}
+
+Point3
+pttopt3(Point p)
+{
+	return (Point3){p.x, p.y, 0., 0.};
+}
+
+Point
+pt3topt(Point3 p)
+{
+	return (Point){p.x, p.y};
+}
+
+Quad
+celltoquad(Cell *c)
+{
+	Quad q;
+
+	q = qcircle(Pt(c->pos.x, c->pos.y), mass2radius(c->mass), c);
+
+	return q;
 }
 
 int
@@ -165,6 +211,36 @@ parseint(char *str, int *res)
 	return 1;
 }
 
+int
+parsedouble(char *str, double *res)
+{
+	char *p;
+	double d;
+
+	if(str == nil){
+		werrstr("empty number");
+		return 0;
+	}
+
+	d = strtod(str, &p);
+
+	if(*p != '\0'){
+		werrstr("trailing garbage in number");
+		return 0;
+	}
+
+	if(res != nil)
+		*res = d;
+
+	return 1;
+}
+
+double
+dtime(void)
+{
+	return nsec()/1000000000.0;
+}
+
 static void
 timerproc(void *v)
 {
@@ -172,7 +248,7 @@ timerproc(void *v)
 	char *tag;
 	Channel *nsc;
 	int ms;
-	vlong ns;
+	double dt, ct, nt;
 
 	vv = v;
 	tag = vv[0];
@@ -184,14 +260,19 @@ timerproc(void *v)
 	threadsetname("timerproc #%s %d", tag, ms);
 	free(tag);
 
+	ct = dtime();
+
 	for(;;){
 		if(sleep(ms) < 0){
 			chanclose(nsc);
 			threadexits(nil);
 		}
 
-		ns = nsec();
-		send(nsc, &ns);
+		nt = dtime();
+		dt = nt - ct;
+		ct = nt;
+
+		send(nsc, &dt);
 	}
 }
 
@@ -203,7 +284,7 @@ timerchan(int ms, char *tag)
 
 	v = mallocz(sizeof(void*)*3, 1);
 
-	ns = chancreate(sizeof(vlong), 0);
+	ns = chancreate(sizeof(double), 0);
 
 	v[0] = strdup(tag);
 	v[1] = ns;
@@ -212,3 +293,6 @@ timerchan(int ms, char *tag)
 	proccreate(timerproc, v, 8192);
 	return ns;
 }
+
+/* zero Point3 */
+Point3 ZP3;

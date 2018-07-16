@@ -23,6 +23,7 @@ struct Quad
 			Rectangle r;
 		};
 	};
+	void *aux;
 };
 
 /* XXX: should be hidden in quad.c */
@@ -40,21 +41,21 @@ struct QuadTree
 {
 	Rectangle boundary;
 
-	Quad **quads;
+	Quad *quads;
 	int nquads;
 	int maxquads;
 
 	/* QTNZONE QuadTrees */
 	QuadTree *zones;
 };
- 
-Quad qcircle(Point p, int radius);
-Quad qrect(Rectangle r);
-Rectangle quad2rect(Quad *v);
+
+Quad qcircle(Point p, int radius, void *aux);
+Quad qrect(Rectangle r, void *aux);
+Rectangle quad2rect(Quad v);
 
 QuadTree *qtmk(Rectangle aabb);
-int qtinsert(QuadTree *qt, Quad *v);
+int qtinsert(QuadTree *qt, Quad v);
 void qtsubdivide(QuadTree *qt);
 Point *qtquery(QuadTree *qt, Rectangle aabb, int *npoint);
 void qtclear(QuadTree *qt);
-int qtsearch(QuadTree *qt, Rectangle r, Quad ***res, int *nres);
+int qtsearch(QuadTree *qt, Rectangle r, Quad **res, int *nres);

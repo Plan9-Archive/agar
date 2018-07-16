@@ -1,0 +1,8 @@
+</$objtype/mkfile
+
+TARG=agarc
+OFILES=main.$O
+LIB=$LIB ../libagar/libagar.$O.a ../libquad/libquad.$O.a
+CFLAGS=$CFLAGS -I../libquad -I../libagar
+
+</sys/src/cmd/mkone

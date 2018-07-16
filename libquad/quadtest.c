@@ -4,43 +4,59 @@
 #include <thread.h>
 #include <keyboard.h>
 #include <mouse.h>
+#include <geometry.h>
+#include <avl.h>
 
 #include "quad.h"
+#include "agar.h"
+
+int debug = 0;
 
 typedef struct Blob Blob;
 struct Blob
 {
-	Quad;
+	Point3 pos;
+	Point3 vel;
 
 	int mass;
 	char *name;
-
-	double xspeed;
-	double yspeed;
+	int id;
 };
 
 Blob*
 mkblob(Point p)
 {
 	Blob *b;
+	static int id = 0;
 
 	b = mallocz(sizeof(*b), 1);
 
-	b->xspeed = 1.0;
-	b->yspeed = 1.0;
+	b->pos = pttopt3(p);
+
+	b->vel.x = frand() * 100.0;
+	b->vel.y = frand() * 100.0;
+
+	b->mass = 5;
 
 	switch(0){
 	case 0:
-		b->Quad = qcircle(p, nrand(30)+10);
-		b->name = smprint("%P %d", b->p, b->radius);
+		b->name = smprint("%P %d", p, b->mass);
 		break;
 	case 1:
-		b->Quad = qrect(canonrect(Rpt(p, addpt(p, Pt(nrand(100)+10, nrand(100)+10)))));
-		b->name = smprint("%R", b->r);
+		//b->Quad = qrect(canonrect(Rpt(p, addpt(p, Pt(nrand(100)+10, nrand(100)+10)))));
+		//b->name = smprint("%R", b->r);
 		break;
 	}
 
+	b->id = id++;
+
 	return b;
+}
+
+Quad
+blobtoquad(Blob *b)
+{
+	return qcircle(Pt(b->pos.x, b->pos.y), mass2radius(b->mass), b);
 }
 
 Image *red;
@@ -56,14 +72,14 @@ int nblobs;
 QuadTree *qt;
 
 void
-dq(Quad *v, Image *color)
+dq(Quad v, Image *color)
 {
-	switch(v->type){
+	switch(v.type){
 	case QNCIRCLE:
-		fillellipse(screen, addpt(screen->r.min, v->p), v->radius, v->radius, color, ZP);
+		fillellipse(screen, addpt(screen->r.min, v.p), v.radius, v.radius, color, ZP);
 		break;
 	case QNRECTANGLE:
-		draw(screen, rectaddpt(v->r, screen->r.min), color, nil, ZP);
+		draw(screen, rectaddpt(v.r, screen->r.min), color, nil, ZP);
 		break;
 	}	
 }
@@ -74,6 +90,7 @@ drawquads(QuadTree *qt)
 	int i;
 	Rectangle r;
 	QuadTree *child;
+	Quad q;
 	Blob *blob;
 
 	//print("drawquads %R %d %d\n", qt->boundary, qt->nquads, qt->maxquads);
@@ -89,10 +106,11 @@ drawquads(QuadTree *qt)
 	//print("== all ==\n");
 
 	for(i = 0; i < qt->nquads; i++){
-		blob = (Blob*)qt->quads[i];
-		dq(blob, red);
+		blob = (Blob*)qt->quads[i].aux;
+		q = blobtoquad(blob);
+		dq(q, red);
 
-		//print("%R\n", blob->r);
+		//print("%d %d %R\n", blob->id, blob->mass, quad2rect(q));
 	}
 
 	if(qt->zones != nil){
@@ -107,6 +125,10 @@ void
 drawquad(int new)
 {
 	int i;
+	char buf[32];
+	Point p;
+	Quad q;
+	Blob *blob;
 
 	if(new && getwindow(display, Refmesg) < 0)
 		sysfatal("can't reattach to window");
@@ -119,16 +141,18 @@ drawquad(int new)
 	qtclear(qt);
 
 	for(i = 0; i < nblobs; i++){
-		qtinsert(qt, blobs[i]);
+		blob = blobs[i];
+		q = blobtoquad(blob);
+		//print("insert %d %d %R\n", blob->id, blob->mass, quad2rect(q));
+		qtinsert(qt, q);
 	}
 
 	drawquads(qt);
 
 	if(nblobs > 1){
-
-		Quad **res = nil;
+		Quad *res = nil;
 		int nres = 0;
-		Rectangle search = quad2rect(blobs[0]);
+		Rectangle search = quad2rect(blobtoquad(blobs[0]));
 
 		qtsearch(qt, search, &res, &nres);
 
@@ -142,36 +166,52 @@ drawquad(int new)
 
 		free(res);
 
-		dq(blobs[0], green);
+		dq(blobtoquad(blobs[0]), green);
 	}
 
 	qtclear(qt);
+
+	for(i = 0; i < nblobs; i++){
+		snprint(buf, sizeof(buf), "%d", blobs[i]->id);
+		q = blobtoquad(blobs[i]);
+		p = addpt(q.p, screen->r.min);
+		string(screen, p, display->white, ZP, font, buf);
+	}
 
 	flushimage(display, 1);
 }
 
 static void
-step(void)
+step(double dt)
 {
 	int i;
-	Rectangle r;
 	Blob *b;
 
 	for(i = 0; i < nblobs; i++){
 		b = blobs[i];
 
-		// TODO(mischief): move and collide shit.
+		b->pos = add3(b->pos, mul3(b->vel, dt));
+
+		/* bounce back */
+		if(b->pos.x < 0 || b->pos.x > 500)
+			b->vel.x = -b->vel.x;
+		if(b->pos.y < 0 || b->pos.y > 500)
+			b->vel.y = -b->vel.y; 
 	}
 }
 
 void
 threadmain(int argc, char *argv[])
 {
-	int i;
+	int i, pause;
 	Rune r;
+	double dt;
+	Channel *timerc;
 
 	ARGBEGIN{
 	}ARGEND
+
+	pause = 0;
 
 	srand(truerand());
 
@@ -184,49 +224,49 @@ threadmain(int argc, char *argv[])
 	if((kc = initkeyboard(nil)) == nil)
 		sysfatal("initkeyboard: %r");
 
+	timerc = timerchan(40, argv0);
+
 	red = allocimagemix(display, DRed, DRed);
 	blue = allocimagemix(display, DBlue, DBlue);
 	green = allocimagemix(display, DGreen, DGreen);
 
 	nblobs = 0;
 
-	qt = qtmk(Rect(0, 0, 1000, 1000));
+	qt = qtmk(Rect(0, 0, 500, 500));
 
-	blobs[nblobs] = mkblob(Pt(475, 475));
-	nblobs++;
-	blobs[nblobs] = mkblob(Pt(200, 200));
-	nblobs++;
-	blobs[nblobs] = mkblob(Pt(400, 100));
+	blobs[nblobs] = mkblob(Pt(100, 100));
 	nblobs++;
 	blobs[nblobs] = mkblob(Pt(100, 400));
 	nblobs++;
-	blobs[nblobs] = mkblob(Pt(755, 755));
+	blobs[nblobs] = mkblob(Pt(400, 100));
+	nblobs++;
+	blobs[nblobs] = mkblob(Pt(400, 400));
+	nblobs++;
+	blobs[nblobs] = mkblob(Pt(400, 250));
+	nblobs++;
+	blobs[nblobs] = mkblob(Pt(250, 250));
 	nblobs++;
 
 	drawquad(0);
 
-	Alt alts[3];
-
-	alts[0].op = CHANRCV;
-	alts[0].c = kc->c;
-	alts[0].v = &r;
-	alts[1].op = CHANRCV;
-	alts[1].c = mc->resizec;
-	alts[1].v = nil;
-	alts[2].op = CHANRCV;
-	alts[2].c = mc->c;
-	alts[2].v = &mc->Mouse;
-	alts[3].op = CHANEND;
+	enum { MOUSE, RESIZE, KEY, TIMER, END };
+	Alt alts[] = {
+	[MOUSE]		{ mc->c,		&mc->Mouse,	CHANRCV },
+	[RESIZE]	{ mc->resizec,	nil,		CHANRCV },
+	[KEY]		{ kc->c,		&r,			CHANRCV },
+	[TIMER]		{ timerc,		&dt,		CHANRCV },
+	[END]		{ nil,			nil,		CHANEND },
+	};
 
 	for(;;){
 		switch(alt(alts)){
-		case 0:
+		case KEY:
 			switch(r){
 			case 'q':
 			case 'Q':
 			case 0x04:
 			case 0x7F:
-				threadexitsall(nil);
+				goto out;
 			case 'c':
 				qtclear(qt);
 				for(i = 0; i < nblobs; i++){
@@ -240,22 +280,32 @@ threadmain(int argc, char *argv[])
 				if(nblobs >= nelem(blobs))
 					break;
 
-				blobs[nblobs] = mkblob(Pt(nrand(800)+50, nrand(900)+50));
+				blobs[nblobs] = mkblob(Pt(nrand(400)+50, nrand(400)+50));
 				nblobs++;
 				drawquad(0);
+				break;
+			case ' ':
+				pause = !pause;
 				break;
 			default:
 				drawquad(0);
 				break;
 			}
 			break;
-		case 1:
+		case MOUSE:
+			break;
+		case RESIZE:
 			drawquad(1);
 			break;
-		case 2:
+		case TIMER:
+			if(!pause){
+				step(dt);
+			drawquad(0);
+			}
 			break;
 		}
 	}
 
+out:
 	threadexitsall(nil);
 }

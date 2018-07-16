@@ -1,0 +1,26 @@
+</$objtype/mkfile
+
+BIN=/$objtype/bin/games
+TARG=agard
+OFILES=main.$O fs.$O room.$O
+LIB=$LIB ../libquad/libquad.$O.a ../libagar/libagar.$O.a
+CFLAGS=$CFLAGS -I../libquad -I../libagar
+
+</sys/src/cmd/mkone
+
+servertest:V:	$O.out
+	@{
+		rfork ne
+		rm -f /srv/agar
+		unmount /n/agar >[2]/dev/null || status=''
+		broke|grep 6.out|rc
+		kill $O.out|rc
+		$O.out -d
+		#srv tcp!$sysname!19000 agar /n/agar
+		#ls /n/agar
+		#exec cat /n/agar/event &
+		#cpid=$apid
+		#echo ping > /n/agar/ctl
+		#echo kill > /proc/$cpid/ctl
+		#rm -f /srv/agar
+	}
